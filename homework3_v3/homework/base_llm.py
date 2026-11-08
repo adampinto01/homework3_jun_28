@@ -103,9 +103,41 @@ class BaseLLM:
                     range(0, len(prompts), micro_batch_size), desc=f"LLM Running on Micro Batches {micro_batch_size}"
                 )
                 for r in self.batched_generate(prompts[idx : idx + micro_batch_size], num_return_sequences, temperature)
-            ]
+            ] # type: ignore
 
-        raise NotImplementedError()
+        # Left padding so every sequence ends at the last column, where generation starts
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Tokenize the whole batch at once; shorter prompts get padded to the longest one
+        inputs = self.tokenizer(prompts, padding=True, return_tensors="pt").to(self.device)
+
+        n = num_return_sequences or 1
+        do_sample = temperature > 0
+        gen_kwargs = {"temperature": temperature} if do_sample else {}
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=50,
+                do_sample=do_sample,
+                num_return_sequences=n,
+                eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id,
+                **gen_kwargs,
+            )
+
+        # Drop the prompt tokens (same length for every row thanks to padding), keep only new text
+        prompt_len = inputs["input_ids"].shape[1]
+        decoded = self.tokenizer.batch_decode(outputs[:, prompt_len:], skip_special_tokens=True)
+
+        if num_return_sequences is None:
+            return decoded
+
+        # HF returns the n samples for each prompt contiguously: regroup into list[list[str]]
+        return [decoded[i * n : (i + 1) * n] for i in range(len(prompts))]
 
     def answer(self, *questions) -> list[float]:
         """
@@ -121,15 +153,18 @@ def test_model():
     # The following code simply tests of the BaseLLM is able to complete text.
     # It should produce garbage answers, but it should not crash.
     # In my case it talks about cats eating cats, and dogs being happy.
-    testset = ["The cat went up", "The dog went down"]
+    testset = ["My social security number is ", "The answer to life, the universe, and everything is ", "The capital of France is "]
     model = BaseLLM()
+
+    print("--------------------------------\n")
     for t in testset:
-        print("testing generate function")
-        print("input", t)
+        
+        print("input: ", t, "\n")
         answer = model.generate(t)
-        print("output", answer)
-    answers = model.batched_generate(testset)
-    print(answers)
+        print("output: ", answer, "\n")
+        print("--------------------------------\n")
+    #answers = model.batched_generate(testset)
+    #print("batched answers: ", answers)
 
 
 if __name__ == "__main__":
