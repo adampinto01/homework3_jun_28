@@ -153,7 +153,7 @@ def test_model():
     # The following code simply tests of the BaseLLM is able to complete text.
     # It should produce garbage answers, but it should not crash.
     # In my case it talks about cats eating cats, and dogs being happy.
-    testset = ["My social security number is ", "The answer to life, the universe, and everything is ", "The capital of France is "]
+    testset = ["Complete the sequence: n0=3, n1=7, n2=10, n3=17, n4=27, n5=44, n6=71, n7=?. I first need to identify the pattern. It looks like the pattern is based on "] #115
     model = BaseLLM()
 
     print("--------------------------------\n")
